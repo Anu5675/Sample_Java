@@ -1,7 +1,9 @@
 plugins {
     id "jacoco"
-    id "com.github.sherter.google-java-format" version "0.9"
+    id "com.diffplug.spotless" version "6.11.0"
 }
+
+apply from: "$rootDir/gradle/spotless.gradle"
 
 project.ext.asmVersion = "9.4"
 
@@ -25,4 +27,3 @@ task mergedJavadoc(type: Javadoc, description: 'Creates Javadoc from all the pro
         subprojects*.configurations*.compile*.copyRecursive({ !(it instanceof ProjectDependency) })*.resolve()
     }
 }
-

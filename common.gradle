@@ -5,6 +5,8 @@
 apply plugin: 'java'
 apply plugin: 'idea'
 
+apply from: "$rootDir/gradle/spotless.gradle"
+
 project.group = 'org.openjdk.btrace'
 project.version = '2.3.0-SNAPSHOT'
 
@@ -28,11 +30,6 @@ buildscript {
     repositories {
         mavenCentral()
     }
-}
-
-googleJavaFormat {
-    exclude '**/resources/**/*.java'
-    exclude '**/test/btrace/**.java'
 }
 
 [compileJava, compileTestJava]*.options*.encoding = 'UTF-8'

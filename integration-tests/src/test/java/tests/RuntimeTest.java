@@ -157,7 +157,7 @@ public abstract class RuntimeTest {
       String testApp, String testScript, String[] cmdArgs, int checkLines, ResultValidator v)
       throws Exception {
     startJfr = true;
-    test(testApp, testScript, cmdArgs, checkLines, v);
+    testDynamic(testApp, testScript, cmdArgs, checkLines, v);
   }
 
   @SuppressWarnings("DefaultCharset")
@@ -168,6 +168,20 @@ public abstract class RuntimeTest {
 
   @SuppressWarnings("DefaultCharset")
   public void test(
+      String testApp, String testScript, String[] cmdArgs, int checkLines, ResultValidator v)
+      throws Exception {
+    testDynamic(testApp, testScript, cmdArgs, checkLines, v);
+    testStartup(testApp, testScript, cmdArgs, checkLines, v);
+  }
+
+  @SuppressWarnings("DefaultCharset")
+  public void testDynamic(String testApp, String testScript, int checkLines, ResultValidator v)
+      throws Exception {
+    testDynamic(testApp, testScript, null, checkLines, v);
+  }
+
+  @SuppressWarnings("DefaultCharset")
+  public void testDynamic(
       String testApp, String testScript, String[] cmdArgs, int checkLines, ResultValidator v)
       throws Exception {
     if (forceDebug) {
@@ -290,6 +304,166 @@ public abstract class RuntimeTest {
     }
 
     v.validate(stdout.toString(), stderr.toString(), ret.get(), jfrFile);
+  }
+
+  public void testStartup(
+      String testApp, String testScript, String[] cmdArgs, int checkLines, ResultValidator v)
+      throws Exception {
+    Path agentPath = locateAgent();
+    if (agentPath == null) {
+      throw new RuntimeException("Missing btrace-agent.jar");
+    }
+    if (forceDebug) {
+      // force debug flags
+      debugBTrace = true;
+      debugTestApp = true;
+    }
+    String jfrFile = null;
+    List<String> args = new ArrayList<>(Arrays.asList(javaHome + "/bin/java", "-cp", cp));
+    if (attachDebugger) {
+      args.add("-agentlib:jdwp=transport=dt_socket,server=y,address=8000");
+    }
+    args.add("-XX:+AllowRedefinitionToAddDeleteMethods");
+    args.add("-XX:+IgnoreUnrecognizedVMOptions");
+    // uncomment the following line to get extra JFR logs
+    //    args.add("-Xlog:jfr*=trace");
+    args.addAll(extraJvmArgs);
+    args.addAll(
+        Arrays.asList(
+            "-XX:+AllowRedefinitionToAddDeleteMethods", "-XX:+IgnoreUnrecognizedVMOptions"));
+    if (startJfr) {
+      jfrFile = Files.createTempFile("btrace-", ".jfr").toString();
+      args.add("-XX:StartFlightRecording=settings=default,dumponexit=true,filename=" + jfrFile);
+    }
+
+    String agentSetup =
+        "-javaagent:"
+            + agentPath
+            + "=script="
+            + locateTrace(testScript)
+            + ",scriptOutputFile=::stdout";
+    if (debugBTrace) {
+      agentSetup += ",debug=true";
+    }
+    args.add(agentSetup);
+    args.add(testApp);
+
+    ProcessBuilder pb = new ProcessBuilder(args);
+    pb.environment().remove("JAVA_TOOL_OPTIONS");
+
+    Process p = pb.start();
+    PrintWriter pw = new PrintWriter(p.getOutputStream());
+
+    StringBuilder stdout = new StringBuilder();
+    StringBuilder stderr = new StringBuilder();
+    AtomicInteger ret = new AtomicInteger(-1);
+
+    BufferedReader stdoutReader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+
+    CountDownLatch testAppLatch = new CountDownLatch(1);
+    CountDownLatch stdoutLatch = new CountDownLatch(checkLines);
+    AtomicReference<String> pidStringRef = new AtomicReference<>();
+
+    Thread outT =
+        new Thread(
+            () -> {
+              try {
+                String l;
+                while ((l = stdoutReader.readLine()) != null) {
+                  stdout.append(l).append(System.lineSeparator());
+                  if (l.startsWith("ready:")) {
+                    pidStringRef.set(l.split("\\:")[1]);
+                    testAppLatch.countDown();
+                  } else {
+                    stdoutLatch.countDown();
+                  }
+                  if (debugTestApp) {
+                    System.out.println("[traced app] " + l);
+                  }
+                }
+
+              } catch (Exception e) {
+                e.printStackTrace(System.err);
+              }
+            },
+            "STDOUT Reader");
+    outT.setDaemon(true);
+
+    BufferedReader stderrReader = new BufferedReader(new InputStreamReader(p.getErrorStream()));
+
+    Thread errT =
+        new Thread(
+            () -> {
+              try {
+                String l = null;
+                while ((l = stderrReader.readLine()) != null) {
+                  stderr.append(l).append(System.lineSeparator());
+                  if (l.contains("Server VM warning")
+                      || l.contains("XML libraries not available")) {
+                    continue;
+                  }
+                  if (debugTestApp) {
+                    System.err.println("[traced app] " + l);
+                  }
+                  testAppLatch.countDown();
+                  for (int i = 0; i < checkLines; i++) {
+                    stdoutLatch.countDown();
+                  }
+                }
+              } catch (Exception e) {
+                e.printStackTrace(System.err);
+              }
+            },
+            "STDERR Reader");
+    errT.setDaemon(true);
+
+    outT.start();
+    errT.start();
+
+    testAppLatch.countDown();
+    stdoutLatch.await();
+
+    v.validate(stdout.toString(), stderr.toString(), ret.get(), jfrFile);
+  }
+
+  protected Path locateAgent() {
+    Path start = projectRoot.resolve("btrace-dist/build/resources/main");
+    Path[] tracePath = new Path[1];
+    try {
+      Files.walkFileTree(
+          start,
+          new FileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
+                throws IOException {
+              return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                throws IOException {
+              if (file.toString().endsWith("btrace-agent.jar")) {
+                tracePath[0] = file;
+                return FileVisitResult.TERMINATE;
+              }
+              return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+              return FileVisitResult.TERMINATE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc)
+                throws IOException {
+              return FileVisitResult.CONTINUE;
+            }
+          });
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return tracePath[0];
   }
 
   public static final class TestApp {
@@ -598,7 +772,7 @@ public abstract class RuntimeTest {
 
   public File locateTrace(String trace) {
     Path start = projectRoot.resolve("integration-tests/src");
-    AtomicReference<Path> tracePath = new AtomicReference<>();
+    Path[] tracePath = new Path[1];
     try {
       Files.walkFileTree(
           start,
@@ -613,7 +787,7 @@ public abstract class RuntimeTest {
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
                 throws IOException {
               if (file.toString().endsWith(trace)) {
-                tracePath.set(file);
+                tracePath[0] = file;
                 return FileVisitResult.TERMINATE;
               }
               return FileVisitResult.CONTINUE;
@@ -633,7 +807,7 @@ public abstract class RuntimeTest {
     } catch (IOException e) {
       e.printStackTrace();
     }
-    return tracePath.get() != null ? tracePath.get().toFile() : null;
+    return tracePath[0] != null ? tracePath[0].toFile() : null;
   }
 
   private Process attach(

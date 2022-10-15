@@ -81,7 +81,7 @@ public final class InstrumentingMethodVisitor extends MethodVisitor
       String desc,
       MethodVisitor mv,
       FrameDiagnosticListener frameDiagnosticListener) {
-    super(ASM7, mv);
+    super(ASM9, mv);
     this.owner = owner;
     this.desc = desc;
 

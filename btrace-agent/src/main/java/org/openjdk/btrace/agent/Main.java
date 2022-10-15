@@ -139,44 +139,48 @@ public final class Main {
       settings.setDebug(isDebug);
       DebugSupport.initLoggers(isDebug, log);
 
-      log.debug("parsed command line arguments");
+      log.debug("parsed command line arguments: {}", argMap);
       parseArgs();
       // settings are all built-up; set the logging system properties accordingly
       DebugSupport.initLoggers(settings.isDebug(), log);
 
-      log.debug("Adding class transformer");
-      inst.addTransformer(transformer, true);
-      int startedScripts = startScripts();
-
       String tmp = argMap.get(NO_SERVER);
       // noServer is defaulting to true if startup scripts are defined
       boolean noServer = tmp != null ? Boolean.parseBoolean(tmp) : hasScripts();
+      Thread agentThread = null;
       if (noServer) {
         log.debug("noServer is true, server not started");
-        return;
+      } else {
+        agentThread =
+            new Thread(
+                () -> {
+                  BTraceRuntime.enter();
+                  try {
+                    startServer();
+                  } finally {
+                    BTraceRuntime.leave();
+                  }
+                });
       }
-      Thread agentThread =
-          new Thread(
-              () -> {
-                BTraceRuntime.enter();
-                try {
-                  startServer();
-                } finally {
-                  BTraceRuntime.leave();
-                }
-              });
       // force back-registration of BTraceRuntimeImpl in BTraceRuntime
       BTraceRuntimes.getDefault();
       // init BTraceRuntime
       BTraceRuntime.initUnsafe();
-      BTraceRuntime.enter();
-      try {
-        agentThread.setDaemon(true);
-        log.debug("starting agent thread");
-        agentThread.start();
-      } finally {
-        BTraceRuntime.leave();
+      if (agentThread != null) {
+        BTraceRuntime.enter();
+        try {
+          agentThread.setDaemon(true);
+          log.debug("starting agent thread");
+
+          agentThread.start();
+        } finally {
+          BTraceRuntime.leave();
+        }
       }
+
+      log.debug("Adding class transformer");
+      inst.addTransformer(transformer, true);
+      int startedScripts = startScripts();
     } finally {
       log.debug("Agent init took: {}", (System.nanoTime() - ts) + "ns");
     }

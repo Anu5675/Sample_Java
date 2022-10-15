@@ -41,6 +41,7 @@ import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.openjdk.btrace.core.BTraceRuntime;
 import org.openjdk.btrace.core.DebugSupport;
+import org.openjdk.btrace.runtime.LinkingFlag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,6 +64,16 @@ public final class BTraceTransformer implements ClassFileTransformer {
   private final Collection<BTraceProbe> probes = new ArrayList<>(3);
   private final Filter filter = new Filter();
   private final Collection<MethodNode> cushionMethods = new HashSet<>();
+
+  static {
+    Filter.class.getName();
+    ReentrantReadWriteLock.class.getName();
+    ReentrantReadWriteLock.WriteLock.class.getName();
+    ReentrantReadWriteLock.ReadLock.class.getName();
+    ArrayList.class.getName();
+    HashSet.class.getName();
+    HashMap.class.getName();
+  }
 
   public BTraceTransformer(DebugSupport d) {
     debug = d;
@@ -101,7 +112,7 @@ public final class BTraceTransformer implements ClassFileTransformer {
         filter.remove(om);
         MethodNode cushionMethod =
             new MethodNode(
-                Opcodes.ASM7,
+                Opcodes.ASM9,
                 Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
                 Instrumentor.getActionMethodName(p, om.getTargetName()),
                 om.getTargetDescriptor(),
@@ -132,6 +143,10 @@ public final class BTraceTransformer implements ClassFileTransformer {
       byte[] classfileBuffer)
       throws IllegalClassFormatException {
     try {
+      if (LinkingFlag.isLinked()) {
+        log.debug("attempting to retransform class {} while linking", className);
+        return null;
+      }
       setupLock.readLock().lock();
       if (probes.isEmpty()) return null;
 

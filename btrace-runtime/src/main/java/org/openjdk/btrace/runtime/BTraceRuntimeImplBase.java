@@ -430,7 +430,8 @@ public abstract class BTraceRuntimeImplBase implements BTraceRuntime.Impl, Runti
     cmdThread.start();
   }
 
-  protected final String getClassName() {
+  @Override
+  public final String getClassName() {
     return className;
   }
 
@@ -1016,8 +1017,8 @@ public abstract class BTraceRuntimeImplBase implements BTraceRuntime.Impl, Runti
               Method m = null;
               try {
                 m = th.getMethod(clazz);
-              } catch (NoSuchMethodException e) {
-                e.printStackTrace();
+              } catch (Throwable t) {
+                t.printStackTrace();
               }
               mthd = m;
             }
@@ -1025,10 +1026,17 @@ public abstract class BTraceRuntimeImplBase implements BTraceRuntime.Impl, Runti
             @Override
             public void run() {
               if (mthd != null) {
+                boolean entered = enter();
                 try {
-                  mthd.invoke(null, (Object[]) null);
+                  if (entered) {
+                    mthd.invoke(null, (Object[]) null);
+                  }
                 } catch (Throwable th) {
                   th.printStackTrace();
+                } finally {
+                  if (entered) {
+                    leave();
+                  }
                 }
               }
             }

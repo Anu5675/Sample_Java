@@ -150,6 +150,8 @@ public class BTraceFunctionalTests extends RuntimeTest {
 
   @Test
   public void testOnMethod() throws Exception {
+    debugBTrace = true;
+    debugTestApp = true;
     testDynamic(
         "resources.Main",
         "btrace/OnMethodTest.java",

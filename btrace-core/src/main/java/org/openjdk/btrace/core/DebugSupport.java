@@ -29,6 +29,8 @@ import java.io.FileOutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Arrays;
+
 import org.slf4j.Logger;
 import org.slf4j.impl.SimpleLogger;
 
@@ -53,6 +55,7 @@ public final class DebugSupport {
     }
     if (logger != null) {
       try {
+        System.err.println("===> " + Arrays.deepToString(logger.getClass().getDeclaredFields()));
         Field fld = logger.getClass().getDeclaredField("currentLogLevel");
         fld.setAccessible(true);
         fld.set(
@@ -62,6 +65,7 @@ public final class DebugSupport {
                 : 20); // 10 is the 'debug' level for SLF4J SimpleLogger, 20 is the info level
       } catch (NoSuchFieldException | IllegalAccessException e) {
         System.err.println("[btrace] Unable to set debug log level");
+        e.printStackTrace();
       }
     }
   }

@@ -41,6 +41,7 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.openjdk.btrace.core.BTraceRuntime;
 import org.openjdk.btrace.core.MethodID;
@@ -782,6 +783,9 @@ public class Instrumentor extends ClassVisitor {
           }
 
           private void injectBtrace() {
+//            Label l = new Label();
+//            asm.invokeStatic(Constants.BTRACERT_INTERNAL, "enter", "()Z");
+//            asm.jump(IFEQ, l);
             loadArguments(
                 vr,
                 actionArgTypes,
@@ -791,6 +795,7 @@ public class Instrumentor extends ClassVisitor {
                 selfArg(om.getSelfParameter(), Type.getObjectType(className)));
 
             invokeBTraceAction(asm, om);
+//            asm.label(l);
           }
 
           @Override
